@@ -163,10 +163,10 @@ local function generateMapPolys()
   end
 
   for i,gateLine in ipairs(entities.gates) do
+    print(i)
+    print(#(gateLine[3]))
     gatePolys[i] = {}
     for j,gate in ipairs(gateLine[3]) do
-      print("GENERATING GATE POLY")
-      print((gate[2]-1)*32)
       gatePolys[i][j] = generateGatePoly((gate[2]-1)*32, (gate[1]-1)*32, gateLine[2])
     end
   end
@@ -248,6 +248,8 @@ function love.update(dt)
       button.enabled = true
 
       local oldGates = entities.gates[i]
+
+      print("removing "..tostring(#oldGates))
       entities.gates[i] = {}
       gatePolys[i] = {}
 
