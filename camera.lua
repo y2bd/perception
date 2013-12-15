@@ -28,12 +28,12 @@ end
 
 -- necessary because shifing everything makes mouse position invalid
 function Camera:getMousePosition()
-  return self:resolvePosition(love.mouse.getX(), love.mouse.getY())
+  return self.x + love.mouse.getX(), self.y + love.mouse.getY()
 end
 
 -- converts an absolute position to a camera-transformed one
 function Camera:resolvePosition(x, y)
-  return x + self.x, y + self.y
+  return x - self.x, y - self.y
 end
 
 return Camera

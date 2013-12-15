@@ -9,7 +9,7 @@ local keydown = love.keyboard.isDown
 local States = Player.States
 
 -- constants
-LIGHT_ANGLE = math.rad(25)
+LIGHT_ANGLE = math.rad(35)
 MAX_LIGHT_LENGTH = 1280 -- this really should be dynamically determined
 CONE_PRECISION = 256 -- how many points along the light cone do we calculate
 MAX_LIGHT_GHOSTS = 1
@@ -25,6 +25,8 @@ local polygons =
 }
 
 local mapPolys = {}
+
+local gatePolys = {}
 
 local player, map, entities
 
@@ -84,6 +86,18 @@ local function getLightCone(emitx, emity)
   -- vertices
   local vs = {emitx, emity}
 
+  local allPolys = {}
+
+  for _,p in ipairs(mapPolys) do
+    table.insert(allPolys, p)
+  end
+
+  for _,gateLine in ipairs(gatePolys) do
+    for _,gate in ipairs(gateLine) do
+      table.insert(allPolys, gate)
+    end
+  end
+
   for i = 1, CONE_PRECISION do
     local angle = (theta - LIGHT_ANGLE/2) + (i-1) * LIGHT_ANGLE / (CONE_PRECISION - 1)
 
@@ -99,7 +113,7 @@ local function getLightCone(emitx, emity)
       emity + MAX_LIGHT_LENGTH * math.sin(angle)
     }
 
-    for _,poly in ipairs(mapPolys) do
+    for _,poly in ipairs(allPolys) do
       for vi=1, #poly do
 
         -- if it's too far away don't bother calculating
@@ -110,19 +124,30 @@ local function getLightCone(emitx, emity)
           local intersection = intersect(startpoint, endpoint, poly[vi], poly[endIndex])
 
           if intersection ~= nil and disSquared(startpoint, intersection) < disSquared(startpoint, endpoint) then
-          endpoint = intersection
+            endpoint = intersection
+          end
+
         end
 
       end
-
     end
+
+    vs[#vs+1] = endpoint[1]
+    vs[#vs+1] = endpoint[2]
+
   end
 
-  vs[#vs+1] = endpoint[1]
-  vs[#vs+1] = endpoint[2]
+  return vs
 end
 
-return vs
+local function generateGatePoly(x, y, orientation)
+  -- 1 = horizontal, 2 = vertical
+  
+  if orientation == 1 then
+    return {{x, y + BLOCK_SIZE/4}, {x+BLOCK_SIZE, BLOCK_SIZE/4}, {x+BLOCK_SIZE, 3*BLOCK_SIZE/4}, {x, 3*BLOCK_SIZE/4}}
+  elseif orientation == 2 then
+    return {{x + BLOCK_SIZE/4, y}, {x+BLOCK_SIZE/4, y+BLOCK_SIZE}, {x+3*BLOCK_SIZE/4, y+BLOCK_SIZE}, {x+3*BLOCK_SIZE/4, y}}
+  end
 end
 
 local function generateMapPolys()
@@ -136,22 +161,31 @@ local function generateMapPolys()
       end
     end
   end
+
+  for i,gateLine in ipairs(entities.gates) do
+    gatePolys[i] = {}
+    for j,gate in ipairs(gateLine[3]) do
+      print("GENERATING GATE POLY")
+      print((gate[2]-1)*32)
+      gatePolys[i][j] = generateGatePoly((gate[2]-1)*32, (gate[1]-1)*32, gateLine[2])
+    end
+  end
 end
 
 local function mapLocationToRows(x, y)
-  return math.floor(y / BLOCK_SIZE) + 1, math.floor(x / BLOCK_SIZE) + 1
+  return math.floor(math.ceil(y) / BLOCK_SIZE) + 1, math.floor(math.ceil(x) / BLOCK_SIZE) + 1
 end
 
 function love.load()
   win = {width = love.graphics.getWidth(), height = love.graphics.getHeight()}
 
   local id = MapData.loadImageData()
-  map, entities = MapData.getMapData(id)
+  map, entities = MapData.getMapData(id, BLOCK_SIZE)
   generateMapPolys()
 
   player = Player:new((entities['player'][2]-1) * 32, (entities['player'][1]-1) * 32)
 
-  Camera:moveTo(player.x - win.width/2, 0)
+  Camera:moveTo(player.x - win.width/2, player.y - win.height/2)
 
   -- muh minimalism
   love.graphics.setColor(255,255,255)
@@ -164,8 +198,6 @@ function love.update(dt)
 
   theta = math.atan2(my - player.y, mx - player.x)
 
-  local r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
-
   if player.state == States.STANDING or player.state == States.WALKING then
     if keydown("a", "left") then
       player.vx = -Player.WALKING_VELOCITY
@@ -175,56 +207,64 @@ function love.update(dt)
       player.state = States.WALKING
     else
       player.vx = 0
-      player.state = States.STANDING
     end
 
-    if keydown("w", "up", "space") then
-      player.vy = -150
-      player.state = States.FALLING
-    end
-
-    if map[r+1][c] ~= Tiles.WALL and not (map[r+1][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0) then
-      player.state = States.FALLING
-    end
-  end
-  
-  r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
-
-  if player.state == States.FALLING then
-    if keydown("a", "left") then
-      player.vx = -Player.WALKING_VELOCITY
-    elseif keydown("d", "right") then
-      player.vx = Player.WALKING_VELOCITY 
-    end
-
-    if map[r][c] == Tiles.WALL then
+    if keydown("w", "up") then
+      player.vy = -Player.WALKING_VELOCITY
+      player.state = States.WALKING
+    elseif keydown("s", "down") then
+      player.vy = Player.WALKING_VELOCITY
+      player.state = States.WALKING
+    else
       player.vy = 0
-    elseif map[r][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0 then
-      -- this is so the player collides with blocks that only half of its head hits
-      player.vy = 0
-    elseif map[r+1][c] == Tiles.WALL or (map[r+1][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0) then
-      player.vy = 0
-      player.vx = 0
+    end
+
+    if player.vx == 0 and player.vy == 0 then
       player.state = States.STANDING
     end
   end
-  
-  r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
 
-  if player.state == States.WALKING or player.state == States.FALLING then
-    if map[r][c+1] == Tiles.WALL and player.vx > 0 then
+  local r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
+
+  if player.state == States.WALKING then
+    if player.vx > 0 and (map[r][c+1] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
       player.vx = 0
-    elseif map[r][c] == Tiles.WALL and player.vx < 0 then
+    elseif player.vx < 0 and (map[r][c] ~= Tiles.SPACE or (map[r+1][c] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
       player.vx = 0
     end
+
+    if player.vy > 0 and (map[r+1][c] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
+      player.vy = 0
+    elseif player.vy < 0 and (map[r][c] ~= Tiles.SPACE or (map[r][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
+      player.vy = 0
+    end
+
   end  
 
   player:update(dt)
 
+  for i,button in ipairs(entities.buttons) do
+    if (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
+      button.enabled = true
+
+      local oldGates = entities.gates[i]
+      entities.gates[i] = {}
+      gatePolys[i] = {}
+
+      for _,og in ipairs(oldGates[3]) do
+        map[og[1]][og[2]] = Tiles.SPACE
+      end
+    end
+  end
+
   local tx, ty = Camera:resolvePosition(player.x, player.y)
 
-  if tx < (win.width / 4) or tx > (win.width * 3 / 4) then
+  if tx < (win.width * 2 / 5) or tx > (win.width * 3 / 5) then
     Camera:move(player.vx * dt, nil)
+  end
+
+  if ty < (win.height * 2 / 5) or ty > (win.height * 3 / 5) then
+    Camera:move(nil, player.vy * dt)
   end
 end
 
@@ -266,6 +306,17 @@ function love.draw()
         --love.graphics.rectangle('fill', (c-1) * 32, (r-1) * 32, 32, 32)
       end
     end
+  end
+
+  love.graphics.setColor(0,0,0)
+  for _,sign in ipairs(entities.signs) do
+    love.graphics.print(sign[3], (sign[2]-1) * BLOCK_SIZE, (sign[1]-1) * BLOCK_SIZE)
+  end
+
+  for _,button in ipairs(entities.buttons) do
+    local fillMode = button.enabled and "line" or "fill"
+
+    love.graphics.rectangle(fillMode, button.x + button.size/4, button.y + button.size/4, button.size/2, button.size/2)
   end
 
   --love.graphics.setColor(0,0,255)
