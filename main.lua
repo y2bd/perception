@@ -14,6 +14,7 @@ MAX_LIGHT_LENGTH = 1280 -- this really should be dynamically determined
 CONE_PRECISION = 256 -- how many points along the light cone do we calculate
 MAX_LIGHT_GHOSTS = 1
 BLOCK_SIZE = 32
+ROT_RAD_PER_SEC = math.rad(90)
 
 -- local vars
 local theta = 0
@@ -27,6 +28,8 @@ local polygons =
 local mapPolys = {}
 
 local gatePolys = {}
+
+local propellerPolys = {}
 
 local player, map, entities
 
@@ -98,6 +101,10 @@ local function getLightCone(emitx, emity)
     end
   end
 
+  for _,prop in ipairs(propellerPolys) do
+    table.insert(allPolys, prop)
+  end
+
   for i = 1, CONE_PRECISION do
     local angle = (theta - LIGHT_ANGLE/2) + (i-1) * LIGHT_ANGLE / (CONE_PRECISION - 1)
 
@@ -144,9 +151,53 @@ local function generateGatePoly(x, y, orientation)
   -- 1 = horizontal, 2 = vertical
   
   if orientation == 1 then
-    return {{x, y + BLOCK_SIZE/4}, {x+BLOCK_SIZE, BLOCK_SIZE/4}, {x+BLOCK_SIZE, 3*BLOCK_SIZE/4}, {x, 3*BLOCK_SIZE/4}}
+    return {{x, y + BLOCK_SIZE/4}, {x+BLOCK_SIZE, y+BLOCK_SIZE/4}, {x+BLOCK_SIZE, y+3*BLOCK_SIZE/4}, {x, y+3*BLOCK_SIZE/4}}
   elseif orientation == 2 then
     return {{x + BLOCK_SIZE/4, y}, {x+BLOCK_SIZE/4, y+BLOCK_SIZE}, {x+3*BLOCK_SIZE/4, y+BLOCK_SIZE}, {x+3*BLOCK_SIZE/4, y}}
+  end
+end
+
+local function generatePropellerPoly(x, y)
+  -- wing length
+  local wl = BLOCK_SIZE * 2
+
+  --side length
+  local sl = BLOCK_SIZE
+  
+  return 
+  {
+    {x, y},
+    {x, y-wl},
+    {x+sl, y-wl},
+    {x+sl, y},
+    {x+sl+wl, y},
+    {x+sl+wl, y+sl},
+    {x+sl, y+sl},
+    {x+sl, y+sl+wl},
+    {x, y+sl+wl},
+    {x, y+sl},
+    {x-wl, y+sl},
+    {x-wl, y}
+  }
+end
+
+local function rotatePropellers(dt)
+  local dtheta = ROT_RAD_PER_SEC
+
+  for i, prop in ipairs(propellerPolys) do
+    local cx = (entities.propellers[i][2] - 1) * BLOCK_SIZE + BLOCK_SIZE / 2
+    local cy = (entities.propellers[i][1] - 1) * BLOCK_SIZE + BLOCK_SIZE / 1
+
+    for _, point in ipairs(prop) do
+      local ox = point[1] - cx
+      local oy = point[2] - cy
+
+      local rx = ox * math.cos(dtheta * dt) - oy * math.sin(dtheta * dt)
+      local ry = ox * math.sin(dtheta * dt) + oy * math.cos(dtheta * dt)
+
+      point[1] = cx + rx
+      point[2] = cy + ry
+    end
   end
 end
 
@@ -167,8 +218,12 @@ local function generateMapPolys()
     print(#(gateLine[3]))
     gatePolys[i] = {}
     for j,gate in ipairs(gateLine[3]) do
-      gatePolys[i][j] = generateGatePoly((gate[2]-1)*32, (gate[1]-1)*32, gateLine[2])
+      gatePolys[i][j] = generateGatePoly((gate[2]-1)*s, (gate[1]-1)*s, gateLine[2])
     end
+  end
+
+  for i,propeller in ipairs(entities.propellers) do
+    propellerPolys[i] = generatePropellerPoly((propeller[2]-1)*s, (propeller[1]-1)*s)
   end
 end
 
@@ -244,7 +299,7 @@ function love.update(dt)
   player:update(dt)
 
   for i,button in ipairs(entities.buttons) do
-    if (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
+    if button ~= nil and (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
       button.enabled = true
 
       local oldGates = entities.gates[i]
@@ -258,6 +313,8 @@ function love.update(dt)
       end
     end
   end
+
+  rotatePropellers(dt)
 
   local tx, ty = Camera:resolvePosition(player.x, player.y)
 
@@ -285,7 +342,7 @@ function love.draw()
     table.remove(lightQueue, 1)
   end
 
-  love.graphics.print(love.timer.getFPS(), 0, 0)
+  love.graphics.print(love.timer.getFPS(), 20, 20)
 
   for i,g in ipairs(lightQueue) do
     local opacity = (i) * 255 / MAX_LIGHT_GHOSTS
@@ -316,9 +373,11 @@ function love.draw()
   end
 
   for _,button in ipairs(entities.buttons) do
-    local fillMode = button.enabled and "line" or "fill"
+    if button ~= nil then
+      local fillMode = button.enabled and "line" or "fill"
 
-    love.graphics.rectangle(fillMode, button.x + button.size/4, button.y + button.size/4, button.size/2, button.size/2)
+      love.graphics.rectangle(fillMode, button.x + button.size/4, button.y + button.size/4, button.size/2, button.size/2)
+    end
   end
 
   --love.graphics.setColor(0,0,255)
