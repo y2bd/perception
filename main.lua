@@ -15,6 +15,7 @@ CONE_PRECISION = 256 -- how many points along the light cone do we calculate
 MAX_LIGHT_GHOSTS = 1
 BLOCK_SIZE = 32
 ROT_RAD_PER_SEC = math.rad(90)
+CAMERA_EASE = 8
 
 -- local vars
 local theta = 0
@@ -231,12 +232,34 @@ local function mapLocationToRows(x, y)
   return math.floor(math.ceil(y) / BLOCK_SIZE) + 1, math.floor(math.ceil(x) / BLOCK_SIZE) + 1
 end
 
+local function collideWithMoveGate(player, moveGate)
+  local gx, gy = (moveGate[2] - 1) * BLOCK_SIZE, (moveGate[1] - 1) * BLOCK_SIZE
+
+  if player.x < gx or player.x > gx + BLOCK_SIZE then
+    return false
+  end
+
+  if player.y < gy or player.y > gy + BLOCK_SIZE then
+    return false
+  end
+  
+  return true 
+end
+
 function love.load()
   win = {width = love.graphics.getWidth(), height = love.graphics.getHeight()}
 
   local id = MapData.loadImageData()
   map, entities = MapData.getMapData(id, BLOCK_SIZE)
   generateMapPolys()
+
+  for _,b in pairs(entities.buttons) do
+    if b == nil then
+      print ("button "..tostring(_).." is nil")
+    else
+      print ("button "..tostring(b.gateNum).." "..tostring(b.x).." "..tostring(b.y))
+    end
+  end
 
   player = Player:new((entities['player'][2]-1) * 32, (entities['player'][1]-1) * 32)
 
@@ -294,19 +317,31 @@ function love.update(dt)
       player.vy = 0
     end
 
-  end  
+  end 
+
+  if player.state == States.FALLING then
+    if keydown("a", "left") then
+      player.vx = -Player.WALKING_VELOCITY / 10
+    elseif keydown("d", "right") then
+      player.vx = Player.WALKING_VELOCITY / 10
+    end
+
+    player.vx = player.vx / 2
+  end
 
   player:update(dt)
 
-  for i,button in ipairs(entities.buttons) do
+  for i,button in pairs(entities.buttons) do
     if button ~= nil and (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
       button.enabled = true
 
-      local oldGates = entities.gates[i]
+      local n = button.gateNum
 
-      print("removing "..tostring(#oldGates))
-      entities.gates[i] = {}
-      gatePolys[i] = {}
+      local oldGates = entities.gates[n]
+
+      print("removing "..tostring(n))
+      entities.gates[n] = {}
+      gatePolys[n] = {}
 
       for _,og in ipairs(oldGates[3]) do
         map[og[1]][og[2]] = Tiles.SPACE
@@ -314,16 +349,51 @@ function love.update(dt)
     end
   end
 
+  for _,fg in ipairs(entities.fallgates) do
+    if player.state ~= Player.States.FALLING and collideWithMoveGate(player, fg) then
+      player.state = Player.States.FALLING
+      player.vy = 30
+    end
+  end
+
+  for _,wg in ipairs(entities.walkgates) do
+    if collideWithMoveGate(player, wg) then
+      player.state = Player.States.WALKING
+    end
+  end
+
   rotatePropellers(dt)
 
   local tx, ty = Camera:resolvePosition(player.x, player.y)
 
+  --[[
   if tx < (win.width * 2 / 5) or tx > (win.width * 3 / 5) then
     Camera:move(player.vx * dt, nil)
   end
 
   if ty < (win.height * 2 / 5) or ty > (win.height * 3 / 5) then
     Camera:move(nil, player.vy * dt)
+  end
+  --]]
+  
+  if tx < (win.width * 3 / 7) then
+    local diff = (win.width * 3 / 7) - tx
+    Camera:move(- diff / CAMERA_EASE, nil)
+  end
+
+  if tx > (win.width * 4 / 7) then
+    local diff = (win.width * 4 / 7) - tx
+    Camera:move(- diff / CAMERA_EASE, nil)
+  end
+
+  if ty < (win.height * 3 / 7) then
+    local diff = (win.height * 3 / 7) - ty
+    Camera:move(nil, - diff / CAMERA_EASE)
+  end
+
+  if ty > (win.height * 4 / 7) then
+    local diff = (win.height * 4 / 7) - ty
+    Camera:move(nil, - diff / CAMERA_EASE)
   end
 end
 
@@ -372,7 +442,7 @@ function love.draw()
     love.graphics.print(sign[3], (sign[2]-1) * BLOCK_SIZE, (sign[1]-1) * BLOCK_SIZE)
   end
 
-  for _,button in ipairs(entities.buttons) do
+  for _,button in pairs(entities.buttons) do
     if button ~= nil then
       local fillMode = button.enabled and "line" or "fill"
 

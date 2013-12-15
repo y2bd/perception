@@ -20,7 +20,9 @@ local signs =
   [table.concat({255,0,50}, '-')] = "wrong.",
   [table.concat({50,255,0}, '-')] = "right.",
   [table.concat({100,70,0}, '-')] = "right and wrong are relative.",
-  [table.concat({128,128,128}, '-')] = "some choices matter more than others."
+  [table.concat({128,128,128}, '-')] = "some choices matter more than others.",
+  [table.concat({200,160,150}, '-')] = "not all paths carry us the same.",
+  [table.concat({200,200,150}, '-')] = "some solutions rely upon others"
 }
 
 MapData.Tiles =
@@ -89,6 +91,38 @@ local function isPropeller(r,g,b)
   return r==215 and g==120 and b==215
 end
 
+local function isFallGate(r,g,b)
+  return r==85 and g==200 and b==200
+end
+
+local function isWalkGate(r,g,b)
+  return r==200 and g==200 and b==85
+end
+
+local function isGate7(r,g,b)
+  return r==255 and g==30 and b==128
+end
+
+local function isButton7(r,g,b)
+  return r==30 and g==255 and b==128
+end
+
+local function isGate8(r,g,b)
+  return r==200 and g==30 and b==200
+end
+
+local function isButton8(r,g,b)
+  return r==200 and g==200 and b==30
+end
+
+local function isGate9(r,g,b)
+  return r==30 and g==160 and b==120
+end
+
+local function isButton9(r,g,b)
+  return r==60 and g==160 and b==30
+end
+
 function MapData.loadImageData()
   local imageData = love.image.newImageData(FILENAME)
 
@@ -100,7 +134,7 @@ function MapData.getMapData(imageData, blockSize)
   local h = imageData:getHeight()
 
   local map = {}
-  local entities = {signs={}, gates={}, buttons={}, propellers={}}
+  local entities = {signs={}, gates={}, buttons={}, propellers={}, fallgates={}, walkgates={}}
 
   for r=0,h-1 do
     map[r+1] = {}
@@ -141,7 +175,7 @@ function MapData.getMapData(imageData, blockSize)
 
       elseif isGate4(cr,cg,cb) then
         print("gate4 "..tostring(r+1).." "..tostring(c+1))
-        map[r+1][c+1] = Tiles.SPACE
+        map[r+1][c+1] = Tiles.GATE
         if entities.gates[4] == nil then entities.gates[4] = {true, 2, {}} end
         table.insert(entities.gates[4][3], {r+1, c+1})
 
@@ -152,14 +186,46 @@ function MapData.getMapData(imageData, blockSize)
         map[r+1][c+1] = Tiles.GATE
         if entities.gates[5] == nil then entities.gates[5] = {true, 2, {}} end
         table.insert(entities.gates[5][3], {r+1, c+1})
+        entities.buttons[5] = nil
 
       elseif isGate6(cr,cg,cb) then
         map[r+1][c+1] = Tiles.GATE
         if entities.gates[6] == nil then entities.gates[6] = {true, 1, {}} end
         table.insert(entities.gates[6][3], {r+1, c+1})
+        entities.buttons[6] = nil
+
+      elseif isGate7(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[7] == nil then entities.gates[7] = {true, 1, {}} end
+        table.insert(entities.gates[7][3], {r+1, c+1})
+
+      elseif isButton7(cr,cg,cb) then
+        entities.buttons[7] = Button:new(c*blockSize, r*blockSize, blockSize, 7)
+
+      elseif isGate8(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[8] == nil then entities.gates[8] = {true, 1, {}} end
+        table.insert(entities.gates[8][3], {r+1, c+1})
+
+      elseif isButton8(cr,cg,cb) then
+        entities.buttons[8] = Button:new(c*blockSize, r*blockSize, blockSize, 8)
+
+      elseif isGate9(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[9] == nil then entities.gates[9] = {true, 1, {}} end
+        table.insert(entities.gates[9][3], {r+1, c+1})
+
+      elseif isButton9(cr,cg,cb) then
+        entities.buttons[9] = Button:new(c*blockSize, r*blockSize, blockSize, 9)
 
       elseif isPropeller(cr,cg,cb) then
         table.insert(entities.propellers, {r+1, c+1})
+
+      elseif isFallGate(cr,cg,cb) then
+        table.insert(entities.fallgates, {r+1, c+1})
+
+      elseif isWalkGate(cr,cg,cb) then
+        table.insert(entities.walkgates, {r+1, c+1})
 
       elseif isPlayer(cr,cg,cb) then
         entities['player'] = {r+1, c+1}

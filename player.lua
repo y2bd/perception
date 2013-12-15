@@ -30,6 +30,8 @@ function Player:update(dt)
 
   if self.state == Player.States.FALLING then
     self.vy = self.vy + Player.GRAVITY * dt
+
+    self.vy = math.min(660, self.vy)
     self.y = self.y + self.vy * dt
   end
 end
