@@ -1,6 +1,7 @@
 -- imports
 Player = require('player')
 MapData = require('mapData')
+Camera = require('camera')
 
 -- aliases
 local Tiles = MapData.Tiles
@@ -8,9 +9,10 @@ local keydown = love.keyboard.isDown
 local States = Player.States
 
 -- constants
-LIGHT_ANGLE = math.rad(30)
+LIGHT_ANGLE = math.rad(25)
 MAX_LIGHT_LENGTH = 1280 -- this really should be dynamically determined
-CONE_PRECISION = 128 -- how many points along the light cone do we calculate
+CONE_PRECISION = 256 -- how many points along the light cone do we calculate
+MAX_LIGHT_GHOSTS = 1
 BLOCK_SIZE = 32
 
 -- local vars
@@ -25,6 +27,8 @@ local polygons =
 local mapPolys = {}
 
 local player, map, entities
+
+local lightQueue = {}
 
 -- local funcs
 local function clamp(val, min, max)
@@ -82,7 +86,7 @@ local function getLightCone(emitx, emity)
 
   for i = 1, CONE_PRECISION do
     local angle = (theta - LIGHT_ANGLE/2) + (i-1) * LIGHT_ANGLE / (CONE_PRECISION - 1)
-    
+
     local startpoint =
     {
       emitx,
@@ -106,19 +110,19 @@ local function getLightCone(emitx, emity)
           local intersection = intersect(startpoint, endpoint, poly[vi], poly[endIndex])
 
           if intersection ~= nil and disSquared(startpoint, intersection) < disSquared(startpoint, endpoint) then
-            endpoint = intersection
-          end
-
+          endpoint = intersection
         end
 
       end
-    end
 
-    vs[#vs+1] = endpoint[1]
-    vs[#vs+1] = endpoint[2]
+    end
   end
 
-  return vs
+  vs[#vs+1] = endpoint[1]
+  vs[#vs+1] = endpoint[2]
+end
+
+return vs
 end
 
 local function generateMapPolys()
@@ -134,6 +138,10 @@ local function generateMapPolys()
   end
 end
 
+local function mapLocationToRows(x, y)
+  return math.floor(y / BLOCK_SIZE) + 1, math.floor(x / BLOCK_SIZE) + 1
+end
+
 function love.load()
   win = {width = love.graphics.getWidth(), height = love.graphics.getHeight()}
 
@@ -143,19 +151,20 @@ function love.load()
 
   player = Player:new((entities['player'][2]-1) * 32, (entities['player'][1]-1) * 32)
 
+  Camera:moveTo(player.x - win.width/2, 0)
+
   -- muh minimalism
   love.graphics.setColor(255,255,255)
   love.graphics.setLineWidth(2)
   love.graphics.setLineStyle("smooth")
 end
 
-
-
 function love.update(dt)
-  local mx = love.mouse.getX()
-  local my = love.mouse.getY()
+  local mx, my = Camera:getMousePosition()
 
   theta = math.atan2(my - player.y, mx - player.x)
+
+  local r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
 
   if player.state == States.STANDING or player.state == States.WALKING then
     if keydown("a", "left") then
@@ -173,27 +182,76 @@ function love.update(dt)
       player.vy = -150
       player.state = States.FALLING
     end
-  elseif player.state == States.FALLING then
 
+    if map[r+1][c] ~= Tiles.WALL and not (map[r+1][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0) then
+      player.state = States.FALLING
+    end
   end
-
   
+  r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
+
+  if player.state == States.FALLING then
+    if keydown("a", "left") then
+      player.vx = -Player.WALKING_VELOCITY
+    elseif keydown("d", "right") then
+      player.vx = Player.WALKING_VELOCITY 
+    end
+
+    if map[r][c] == Tiles.WALL then
+      player.vy = 0
+    elseif map[r][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0 then
+      -- this is so the player collides with blocks that only half of its head hits
+      player.vy = 0
+    elseif map[r+1][c] == Tiles.WALL or (map[r+1][c+1] == Tiles.WALL and player.x % BLOCK_SIZE ~= 0) then
+      player.vy = 0
+      player.vx = 0
+      player.state = States.STANDING
+    end
+  end
+  
+  r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
+
+  if player.state == States.WALKING or player.state == States.FALLING then
+    if map[r][c+1] == Tiles.WALL and player.vx > 0 then
+      player.vx = 0
+    elseif map[r][c] == Tiles.WALL and player.vx < 0 then
+      player.vx = 0
+    end
+  end  
 
   player:update(dt)
 
+  local tx, ty = Camera:resolvePosition(player.x, player.y)
+
+  if tx < (win.width / 4) or tx > (win.width * 3 / 4) then
+    Camera:move(player.vx * dt, nil)
+  end
 end
 
 
 function love.draw()
+  Camera:set()
+
   love.graphics.setColor(255,255,255)
   love.graphics.print(theta, win.width/2, win.height/2)
 
   local triangles = love.math.triangulate(getLightCone(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2))
 
-  love.graphics.print(#triangles, 0, 0)
+  table.insert(lightQueue, triangles)
 
-  for _,t in ipairs(triangles) do
-    love.graphics.polygon('fill', t)
+  if #lightQueue > MAX_LIGHT_GHOSTS then
+    table.remove(lightQueue, 1)
+  end
+
+  love.graphics.print(love.timer.getFPS(), 0, 0)
+
+  for i,g in ipairs(lightQueue) do
+    local opacity = (i) * 255 / MAX_LIGHT_GHOSTS
+    love.graphics.setColor(opacity, opacity, opacity)
+
+    for _,t in ipairs(g) do
+      love.graphics.polygon('fill', t)
+    end
   end
   --love.graphics.line(win.width / 2, win.height / 2, endpoint[1], endpoint[2])
   --love.graphics.line(720, 200, 780, 280)
@@ -201,7 +259,7 @@ function love.draw()
   --love.graphics.polygon('line', getLightCone(win.width/2, win.height/2))
   love.graphics.setColor(255,0,0)
   --love.graphics.polygon('fill', {720, 200, 780, 280, 860, 200, 780, 120})
-  
+
   for r=1, #map do
     for c=1, #(map[r]) do
       if map[r][c] == Tiles.WALL then
@@ -210,8 +268,9 @@ function love.draw()
     end
   end
 
-  love.graphics.setColor(0,0,255)
-  love.graphics.rectangle('fill', player.x, player.y, BLOCK_SIZE, BLOCK_SIZE)
+  --love.graphics.setColor(0,0,255)
+  --love.graphics.rectangle('fill', player.x, player.y, BLOCK_SIZE, BLOCK_SIZE)
 
+  Camera:unset()
 end
 
