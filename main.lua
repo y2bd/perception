@@ -511,11 +511,11 @@ function love.draw()
   love.graphics.rectangle('fill', 0,0, win.width, win.height)
 
   love.graphics.setColor(0,0,0, sometimesOpacity)
-  love.graphics.print("sometimes you need more than just one.", win.width/4, win.height/2 - 60)
+  love.graphics.print("sometimes you need more than just one.", win.width * 2/16, win.height/2 - 30)
 
   love.graphics.setColor(0,0,0, endingOpacity)
-  love.graphics.print("made for ludum dare 28 by y2bd.", win.width/4, win.height/2 - 30)
-  love.graphics.print("the theme was \"you only get one\"", win.width/4, win.height/2)
+  love.graphics.print("made for ludum dare 28 by y2bd.", win.width * 2/16, win.height/2 - 0)
+  love.graphics.print("the theme was \"you only get one\"", win.width * 2/16, win.height/2 + 30)
 
 end
 
