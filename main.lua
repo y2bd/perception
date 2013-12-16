@@ -3,6 +3,14 @@ Player = require('player')
 MapData = require('mapData')
 Camera = require('camera')
 
+-- enums
+local GameStates =
+{
+  INTRO=1,
+  PLAYING=2,
+  OUTRO=3
+}
+
 -- aliases
 local Tiles = MapData.Tiles
 local keydown = love.keyboard.isDown
@@ -10,8 +18,8 @@ local States = Player.States
 
 -- constants
 LIGHT_ANGLE = math.rad(35)
-MAX_LIGHT_LENGTH = 1280 -- this really should be dynamically determined
-CONE_PRECISION = 256 -- how many points along the light cone do we calculate
+MAX_LIGHT_LENGTH = 1800 -- this really should be dynamically determined
+CONE_PRECISION = 128 -- how many points along the light cone do we calculate
 MAX_LIGHT_GHOSTS = 1
 BLOCK_SIZE = 32
 ROT_RAD_PER_SEC = math.rad(90)
@@ -19,6 +27,7 @@ CAMERA_EASE = 8
 
 -- local vars
 local theta = 0
+local otherTheta = math.rad(180)
 
 local polygons =
 {
@@ -32,9 +41,18 @@ local gatePolys = {}
 
 local propellerPolys = {}
 
-local player, map, entities
+local player, other, map, entities
+
 
 local lightQueue = {}
+
+local gameState = GameStates.INTRO
+
+local introOpacity = 255
+
+local outroPause = 0
+local sometimesOpacity = 0
+local endingOpacity = 0
 
 -- local funcs
 local function clamp(val, min, max)
@@ -86,7 +104,7 @@ local function disSquared(p1, p2)
   return (p2[1] - p1[1]) ^ 2 + (p2[2] - p1[2]) ^ 2
 end
 
-local function getLightCone(emitx, emity)
+local function getLightCone(emitx, emity, th)
   -- vertices
   local vs = {emitx, emity}
 
@@ -107,7 +125,7 @@ local function getLightCone(emitx, emity)
   end
 
   for i = 1, CONE_PRECISION do
-    local angle = (theta - LIGHT_ANGLE/2) + (i-1) * LIGHT_ANGLE / (CONE_PRECISION - 1)
+    local angle = (th - LIGHT_ANGLE/2) + (i-1) * LIGHT_ANGLE / (CONE_PRECISION - 1)
 
     local startpoint =
     {
@@ -132,25 +150,25 @@ local function getLightCone(emitx, emity)
           local intersection = intersect(startpoint, endpoint, poly[vi], poly[endIndex])
 
           if intersection ~= nil and disSquared(startpoint, intersection) < disSquared(startpoint, endpoint) then
-            endpoint = intersection
-          end
-
+          endpoint = intersection
         end
 
       end
+
     end
-
-    vs[#vs+1] = endpoint[1]
-    vs[#vs+1] = endpoint[2]
-
   end
 
-  return vs
+  vs[#vs+1] = endpoint[1]
+  vs[#vs+1] = endpoint[2]
+
+end
+
+return vs
 end
 
 local function generateGatePoly(x, y, orientation)
   -- 1 = horizontal, 2 = vertical
-  
+
   if orientation == 1 then
     return {{x, y + BLOCK_SIZE/4}, {x+BLOCK_SIZE, y+BLOCK_SIZE/4}, {x+BLOCK_SIZE, y+3*BLOCK_SIZE/4}, {x, y+3*BLOCK_SIZE/4}}
   elseif orientation == 2 then
@@ -164,7 +182,7 @@ local function generatePropellerPoly(x, y)
 
   --side length
   local sl = BLOCK_SIZE
-  
+
   return 
   {
     {x, y},
@@ -215,8 +233,6 @@ local function generateMapPolys()
   end
 
   for i,gateLine in ipairs(entities.gates) do
-    print(i)
-    print(#(gateLine[3]))
     gatePolys[i] = {}
     for j,gate in ipairs(gateLine[3]) do
       gatePolys[i][j] = generateGatePoly((gate[2]-1)*s, (gate[1]-1)*s, gateLine[2])
@@ -242,7 +258,7 @@ local function collideWithMoveGate(player, moveGate)
   if player.y < gy or player.y > gy + BLOCK_SIZE then
     return false
   end
-  
+
   return true 
 end
 
@@ -253,15 +269,8 @@ function love.load()
   map, entities = MapData.getMapData(id, BLOCK_SIZE)
   generateMapPolys()
 
-  for _,b in pairs(entities.buttons) do
-    if b == nil then
-      print ("button "..tostring(_).." is nil")
-    else
-      print ("button "..tostring(b.gateNum).." "..tostring(b.x).." "..tostring(b.y))
-    end
-  end
-
   player = Player:new((entities['player'][2]-1) * 32, (entities['player'][1]-1) * 32)
+  other = Player:new((entities['other'][2]-1) * 32, (entities['other'][1]-1) * 32)
 
   Camera:moveTo(player.x - win.width/2, player.y - win.height/2)
 
@@ -272,110 +281,148 @@ function love.load()
 end
 
 function love.update(dt)
-  local mx, my = Camera:getMousePosition()
+  if gameState ~= GameStates.OUTRO then
 
-  theta = math.atan2(my - player.y, mx - player.x)
+    local mx, my = Camera:getMousePosition()
 
-  if player.state == States.STANDING or player.state == States.WALKING then
-    if keydown("a", "left") then
-      player.vx = -Player.WALKING_VELOCITY
-      player.state = States.WALKING
-    elseif keydown("d", "right") then
-      player.vx = Player.WALKING_VELOCITY 
-      player.state = States.WALKING
-    else
-      player.vx = 0
-    end
-
-    if keydown("w", "up") then
-      player.vy = -Player.WALKING_VELOCITY
-      player.state = States.WALKING
-    elseif keydown("s", "down") then
-      player.vy = Player.WALKING_VELOCITY
-      player.state = States.WALKING
-    else
-      player.vy = 0
-    end
-
-    if player.vx == 0 and player.vy == 0 then
-      player.state = States.STANDING
-    end
+    theta = math.atan2(my - player.y, mx - player.x)
   end
 
-  local r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
+  if gameState == GameStates.INTRO then
 
-  if player.state == States.WALKING then
-    if player.vx > 0 and (map[r][c+1] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
-      player.vx = 0
-    elseif player.vx < 0 and (map[r][c] ~= Tiles.SPACE or (map[r+1][c] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
-      player.vx = 0
+    introOpacity = introOpacity - 255 * dt
+
+    if introOpacity <= 0 then
+      gameState = GameStates.PLAYING
+      introOpacity = 0
     end
 
-    if player.vy > 0 and (map[r+1][c] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
-      player.vy = 0
-    elseif player.vy < 0 and (map[r][c] ~= Tiles.SPACE or (map[r][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
-      player.vy = 0
-    end
+  elseif gameState == GameStates.PLAYING then
 
-  end 
+    if player.state == States.STANDING or player.state == States.WALKING then
+      if keydown("a", "left") then
+        player.vx = -Player.WALKING_VELOCITY
+        player.state = States.WALKING
+      elseif keydown("d", "right") then
+        player.vx = Player.WALKING_VELOCITY 
+        player.state = States.WALKING
+      else
+        player.vx = 0
+      end
 
-  if player.state == States.FALLING then
-    if keydown("a", "left") then
-      player.vx = -Player.WALKING_VELOCITY / 10
-    elseif keydown("d", "right") then
-      player.vx = Player.WALKING_VELOCITY / 10
-    end
+      if keydown("w", "up") then
+        player.vy = -Player.WALKING_VELOCITY
+        player.state = States.WALKING
+      elseif keydown("s", "down") then
+        player.vy = Player.WALKING_VELOCITY
+        player.state = States.WALKING
+      else
+        player.vy = 0
+      end
 
-    player.vx = player.vx / 2
-  end
-
-  player:update(dt)
-
-  for i,button in pairs(entities.buttons) do
-    if button ~= nil and (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
-      button.enabled = true
-
-      local n = button.gateNum
-
-      local oldGates = entities.gates[n]
-
-      print("removing "..tostring(n))
-      entities.gates[n] = {}
-      gatePolys[n] = {}
-
-      for _,og in ipairs(oldGates[3]) do
-        map[og[1]][og[2]] = Tiles.SPACE
+      if player.vx == 0 and player.vy == 0 then
+        player.state = States.STANDING
       end
     end
-  end
 
-  for _,fg in ipairs(entities.fallgates) do
-    if player.state ~= Player.States.FALLING and collideWithMoveGate(player, fg) then
-      player.state = Player.States.FALLING
-      player.vy = 30
+    local r, c = mapLocationToRows(player.x + player.vx*dt, player.y + player.vy * dt)
+
+    if player.state == States.WALKING then
+      if player.vx > 0 and (map[r][c+1] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
+        player.vx = 0
+      elseif player.vx < 0 and (map[r][c] ~= Tiles.SPACE or (map[r+1][c] ~= Tiles.SPACE and math.floor(player.y % BLOCK_SIZE) ~= 0)) then
+        player.vx = 0
+      end
+
+      if player.vy > 0 and (map[r+1][c] ~= Tiles.SPACE or (map[r+1][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
+        player.vy = 0
+      elseif player.vy < 0 and (map[r][c] ~= Tiles.SPACE or (map[r][c+1] ~= Tiles.SPACE and math.floor(player.x % BLOCK_SIZE) ~= 0)) then
+        player.vy = 0
+      end
+
+    end 
+
+    if player.state == States.FALLING then
+      if keydown("a", "left") then
+        player.vx = -Player.WALKING_VELOCITY / 10
+      elseif keydown("d", "right") then
+        player.vx = Player.WALKING_VELOCITY / 10
+      end
+
+      player.vx = player.vx / 2
+    end
+
+    player:update(dt)
+
+    for i,button in pairs(entities.buttons) do
+      if button ~= nil and (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
+        button.enabled = true
+
+        local n = button.gateNum
+
+        local oldGates = entities.gates[n]
+
+        entities.gates[n] = {}
+        gatePolys[n] = {}
+
+        for _,og in ipairs(oldGates[3]) do
+          map[og[1]][og[2]] = Tiles.SPACE
+        end
+
+        if n == 13 then
+          gameState = GameStates.OUTRO
+        end
+      end
+    end
+
+    for _,fg in ipairs(entities.fallgates) do
+      if player.state ~= Player.States.FALLING and collideWithMoveGate(player, fg) then
+        player.state = Player.States.FALLING
+        player.vy = 30
+      end
+    end
+
+    for _,wg in ipairs(entities.walkgates) do
+      if collideWithMoveGate(player, wg) then
+        player.state = Player.States.WALKING
+      end
+    end
+
+    rotatePropellers(dt)
+
+  elseif gameState == GameStates.OUTRO then
+    if outroPause < 255 then
+      outroPause = outroPause + 255 * dt
+    end
+
+    if outroPause >= 255 then
+      outroPause = 255
+      sometimesOpacity = sometimesOpacity + 255 / 2 * dt
+    end
+
+    if sometimesOpacity >= 255 then
+      sometimesOpacity = 255
+      endingOpacity = endingOpacity + 255 / 2 * dt
+    end
+
+    if endingOpacity >= 255 then
+      endingOpacity = 255
     end
   end
 
-  for _,wg in ipairs(entities.walkgates) do
-    if collideWithMoveGate(player, wg) then
-      player.state = Player.States.WALKING
-    end
-  end
-
-  rotatePropellers(dt)
 
   local tx, ty = Camera:resolvePosition(player.x, player.y)
 
   --[[
   if tx < (win.width * 2 / 5) or tx > (win.width * 3 / 5) then
-    Camera:move(player.vx * dt, nil)
+  Camera:move(player.vx * dt, nil)
   end
 
   if ty < (win.height * 2 / 5) or ty > (win.height * 3 / 5) then
-    Camera:move(nil, player.vy * dt)
+  Camera:move(nil, player.vy * dt)
   end
   --]]
-  
+
   if tx < (win.width * 3 / 7) then
     local diff = (win.width * 3 / 7) - tx
     Camera:move(- diff / CAMERA_EASE, nil)
@@ -402,25 +449,17 @@ function love.draw()
   Camera:set()
 
   love.graphics.setColor(255,255,255)
-  love.graphics.print(theta, win.width/2, win.height/2)
 
-  local triangles = love.math.triangulate(getLightCone(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2))
+  local triangles = love.math.triangulate(getLightCone(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2, theta))
 
-  table.insert(lightQueue, triangles)
+  local otherTriangles = love.math.triangulate(getLightCone(other.x + BLOCK_SIZE/2, other.y + BLOCK_SIZE/2, otherTheta))
 
-  if #lightQueue > MAX_LIGHT_GHOSTS then
-    table.remove(lightQueue, 1)
+  for _,tri in ipairs(triangles) do
+    love.graphics.polygon('fill', tri)
   end
 
-  love.graphics.print(love.timer.getFPS(), 20, 20)
-
-  for i,g in ipairs(lightQueue) do
-    local opacity = (i) * 255 / MAX_LIGHT_GHOSTS
-    love.graphics.setColor(opacity, opacity, opacity)
-
-    for _,t in ipairs(g) do
-      love.graphics.polygon('fill', t)
-    end
+  for _,tri in ipairs(otherTriangles) do
+    love.graphics.polygon('fill', tri)
   end
   --love.graphics.line(win.width / 2, win.height / 2, endpoint[1], endpoint[2])
   --love.graphics.line(720, 200, 780, 280)
@@ -453,6 +492,18 @@ function love.draw()
   --love.graphics.setColor(0,0,255)
   --love.graphics.rectangle('fill', player.x, player.y, BLOCK_SIZE, BLOCK_SIZE)
 
+
   Camera:unset()
+
+  love.graphics.setColor(0,0,0, introOpacity)
+  love.graphics.rectangle('fill', 0,0, win.width, win.height)
+
+  love.graphics.setColor(0,0,0, sometimesOpacity)
+  love.graphics.print("sometimes you need more than just one.", win.width/4, win.height/2 - 60)
+
+  love.graphics.setColor(0,0,0, endingOpacity)
+  love.graphics.print("made for ludum dare 28 by y2bd.", win.width/4, win.height/2 - 30)
+  love.graphics.print("the theme was \"you only get one\"", win.width/4, win.height/2)
+
 end
 

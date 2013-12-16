@@ -43,6 +43,10 @@ local function isPlayer(r, g, b)
   return r == 255 and g == 0 and b == 0
 end
 
+local function isOther(r,g,b)
+  return r == 20 and g == 200 and b == 190
+end
+
 local function isSign(r,g,b)
   return signs[table.concat({r,g,b}, '-')]  
 end
@@ -123,6 +127,39 @@ local function isButton9(r,g,b)
   return r==60 and g==160 and b==30
 end
 
+local function isGate10(r,g,b)
+  return r==200 and g==100 and b==140
+end
+
+local function isButton10(r,g,b)
+  return r==20 and g==140 and b==40
+end
+
+local function isGate11(r,g,b)
+  return r==200 and g==145 and b==230
+end
+
+local function isButton11(r,g,b)
+  return r==20 and g==150 and b==190
+end
+
+local function isGate12(r,g,b)
+  return r==200 and g==40 and b==240
+end
+
+local function isButton12(r,g,b)
+  return r==20 and g==50 and b==200
+end
+
+local function isGate13(r,g,b)
+  return r==20 and g==160 and b==220
+end
+
+local function isButton13(r,g,b)
+  return r==20 and g==180 and b==80
+end
+
+
 function MapData.loadImageData()
   local imageData = love.image.newImageData(FILENAME)
 
@@ -174,7 +211,6 @@ function MapData.getMapData(imageData, blockSize)
         entities.buttons[3] = Button:new(c*blockSize, r*blockSize, blockSize, 3)
 
       elseif isGate4(cr,cg,cb) then
-        print("gate4 "..tostring(r+1).." "..tostring(c+1))
         map[r+1][c+1] = Tiles.GATE
         if entities.gates[4] == nil then entities.gates[4] = {true, 2, {}} end
         table.insert(entities.gates[4][3], {r+1, c+1})
@@ -218,6 +254,38 @@ function MapData.getMapData(imageData, blockSize)
       elseif isButton9(cr,cg,cb) then
         entities.buttons[9] = Button:new(c*blockSize, r*blockSize, blockSize, 9)
 
+      elseif isGate10(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[10] == nil then entities.gates[10] = {true, 1, {}} end
+        table.insert(entities.gates[10][3], {r+1, c+1})
+
+      elseif isButton10(cr,cg,cb) then
+        entities.buttons[10] = Button:new(c*blockSize, r*blockSize, blockSize, 10)
+      
+      elseif isGate11(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[11] == nil then entities.gates[11] = {true, 1, {}} end
+        table.insert(entities.gates[11][3], {r+1, c+1})
+
+      elseif isButton11(cr,cg,cb) then
+        entities.buttons[11] = Button:new(c*blockSize, r*blockSize, blockSize, 11)
+
+      elseif isGate12(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[12] == nil then entities.gates[12] = {true, 1, {}} end
+        table.insert(entities.gates[12][3], {r+1, c+1})
+
+      elseif isButton12(cr,cg,cb) then
+        entities.buttons[12] = Button:new(c*blockSize, r*blockSize, blockSize, 12)
+      
+      elseif isGate13(cr,cg,cb) then
+        map[r+1][c+1] = Tiles.GATE
+        if entities.gates[13] == nil then entities.gates[13] = {true, 1, {}} end
+        table.insert(entities.gates[13][3], {r+1, c+1})
+
+      elseif isButton13(cr,cg,cb) then
+        entities.buttons[13] = Button:new(c*blockSize, r*blockSize, blockSize, 13)
+
       elseif isPropeller(cr,cg,cb) then
         table.insert(entities.propellers, {r+1, c+1})
 
@@ -229,14 +297,16 @@ function MapData.getMapData(imageData, blockSize)
 
       elseif isPlayer(cr,cg,cb) then
         entities['player'] = {r+1, c+1}
+
+      elseif isOther(cr,cg,cb) then
+        entities['other'] = {r+1, c+1}
+
       elseif isWall(cr,cg,cb) then
         map[r+1][c+1] = Tiles.WALL
       end
 
     end
   end
-
-  print ("buttons "..tostring(#(entities.buttons)))
 
   return map, entities
 end
