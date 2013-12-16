@@ -54,6 +54,8 @@ local outroPause = 0
 local sometimesOpacity = 0
 local endingOpacity = 0
 
+local fan, pong
+
 -- local funcs
 local function clamp(val, min, max)
   val = math.min(max, val)
@@ -278,6 +280,14 @@ function love.load()
   love.graphics.setColor(255,255,255)
   love.graphics.setLineWidth(2)
   love.graphics.setLineStyle("smooth")
+
+  fan = love.audio.newSource("assets/fan.ogg", "stream")
+  fan:setLooping(true)
+  fan:setVolume(0.3)
+  fan:play()
+
+  pong = love.audio.newSource("assets/pong.ogg", "static")
+  pong:setVolume(0.4)
 end
 
 function love.update(dt)
@@ -356,6 +366,8 @@ function love.update(dt)
 
     for i,button in pairs(entities.buttons) do
       if button ~= nil and (button.enabled ~= true) and button:isColliding(player.x + BLOCK_SIZE/2, player.y + BLOCK_SIZE/2) then
+        pong:rewind()
+        pong:play()
         button.enabled = true
 
         local n = button.gateNum
